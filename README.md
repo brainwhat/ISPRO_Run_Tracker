@@ -153,3 +153,4 @@ histogram_quantile(0.50, sum(rate(workout_distance_km_bucket[10m])) by (le))
 ## Скриншоты
 
 ![Swagger UI](imgs/swagger.png)
+![Grafana](imgs/grafana.png)
