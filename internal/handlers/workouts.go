@@ -7,6 +7,7 @@ import (
 	"strconv"
 
 	"github.com/go-chi/chi/v5"
+	"running-tracker/internal/metrics"
 	"running-tracker/internal/models"
 	"running-tracker/internal/storage"
 )
@@ -63,6 +64,14 @@ func (h *Handler) CreateWorkout(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	wk, newRecords := h.store.Create(inp)
+
+	metrics.WorkoutsCreatedTotal.Inc()
+	metrics.WorkoutsActive.Inc()
+	metrics.WorkoutDistanceKm.Observe(inp.DistanceKm)
+	for _, rec := range newRecords {
+		metrics.PersonalRecordsBrokenTotal.WithLabelValues(rec.DistanceName).Inc()
+	}
+
 	writeJSON(w, http.StatusCreated, models.CreateWorkoutResponse{
 		Workout:    wk,
 		NewRecords: newRecords,
@@ -102,6 +111,8 @@ func (h *Handler) DeleteWorkout(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "workout not found")
 		return
 	}
+	metrics.WorkoutsDeletedTotal.Inc()
+	metrics.WorkoutsActive.Dec()
 	w.WriteHeader(http.StatusNoContent)
 }
 
