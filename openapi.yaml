@@ -1,0 +1,357 @@
+openapi: 3.0.3
+info:
+  title: Running Tracker API
+  description: |
+    Сервис для хранения беговых тренировок и отслеживания личных рекордов.
+
+    Позволяет:
+    - просматривать историю тренировок
+    - добавлять и изменять тренировки
+    - автоматически получать уведомления о новых личных рекордах
+
+    При добавлении тренировки сервис проверяет все стандартные дистанции
+    (100м, 200м, 400м, 800м, 1К, 1500м, 1 миля, 3К, 5К, 10К, Полумарафон, Марафон).
+    Если дистанция тренировки попадает в диапазон `[целевая, целевая × 1.1]`,
+    рассчитывается проецированное время по среднему темпу и сравнивается с рекордом.
+  version: 1.0.0
+  contact:
+    email: facelessbeach@gmail.com
+
+servers:
+  - url: http://localhost:8080
+    description: Локальный сервер разработки
+
+tags:
+  - name: Workouts
+    description: Управление тренировками
+  - name: Records
+    description: Личные рекорды пользователя
+
+paths:
+  /workouts:
+    get:
+      summary: Список тренировок
+      description: Возвращает все тренировки из базы с поддержкой пагинации.
+      operationId: listWorkouts
+      tags: [Workouts]
+      parameters:
+        - name: limit
+          in: query
+          description: Количество записей на страницу
+          schema:
+            type: integer
+            default: 20
+            minimum: 1
+            maximum: 100
+        - name: offset
+          in: query
+          description: Смещение от начала списка
+          schema:
+            type: integer
+            default: 0
+            minimum: 0
+      responses:
+        '200':
+          description: Список тренировок
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Workout'
+              example:
+                - id: 1
+                  name: "Easy 5K"
+                  distance_km: 5.0
+                  duration_min: 30.0
+                  pace_min_per_km: 6.0
+                  avg_heart_rate: 135
+                  calories: 280
+                  date: "2026-01-10"
+                  created_at: "2026-01-10T08:00:00Z"
+
+    post:
+      summary: Добавить тренировку
+      description: |
+        Добавляет новую тренировку в базу.
+
+        Поле `new_records` в ответе содержит личные рекорды, установленные этой тренировкой.
+        Если рекордов нет — пустой массив.
+      operationId: createWorkout
+      tags: [Workouts]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WorkoutInput'
+            example:
+              name: "Моя утренняя пробежка"
+              description: "Лёгкий темп, хорошая погода"
+              distance_km: 8.5
+              duration_min: 48.0
+              avg_heart_rate: 148
+              calories: 450
+              date: "2026-04-29"
+      responses:
+        '201':
+          description: Тренировка создана
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreateWorkoutResponse'
+        '400':
+          description: Некорректные данные
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /workouts/{id}:
+    get:
+      summary: Получить тренировку по ID
+      operationId: getWorkout
+      tags: [Workouts]
+      parameters:
+        - $ref: '#/components/parameters/WorkoutId'
+      responses:
+        '200':
+          description: Тренировка
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Workout'
+        '404':
+          description: Тренировка не найдена
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+    put:
+      summary: Обновить тренировку
+      description: Полностью заменяет данные тренировки. Темп пересчитывается автоматически.
+      operationId: updateWorkout
+      tags: [Workouts]
+      parameters:
+        - $ref: '#/components/parameters/WorkoutId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WorkoutInput'
+      responses:
+        '200':
+          description: Обновлённая тренировка
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Workout'
+        '400':
+          description: Некорректные данные
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Тренировка не найдена
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+    delete:
+      summary: Удалить тренировку
+      operationId: deleteWorkout
+      tags: [Workouts]
+      parameters:
+        - $ref: '#/components/parameters/WorkoutId'
+      responses:
+        '204':
+          description: Удалено
+        '404':
+          description: Тренировка не найдена
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /records:
+    get:
+      summary: Личные рекорды
+      description: |
+        Возвращает личные рекорды пользователя на стандартных дистанциях.
+
+        Стандартные дистанции: 100м, 200м, 400м, 800м, 1К, 1500м, 1 миля, 3К, 5К, 10К, Полумарафон, Марафон.
+
+        Рекорд устанавливается автоматически при добавлении тренировки (`POST /workouts`),
+        если дистанция тренировки не короче целевой и не длиннее её на 10%.
+        Время рассчитывается по среднему темпу тренировки.
+      operationId: listRecords
+      tags: [Records]
+      responses:
+        '200':
+          description: Список рекордов в порядке стандартных дистанций (только те, на которых есть результат)
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Record'
+
+components:
+  parameters:
+    WorkoutId:
+      name: id
+      in: path
+      required: true
+      description: Идентификатор тренировки
+      schema:
+        type: integer
+        example: 1
+
+  schemas:
+    WorkoutInput:
+      type: object
+      required:
+        - distance_km
+        - duration_min
+      properties:
+        name:
+          type: string
+          description: Название тренировки
+          example: "Tempo 10K"
+        description:
+          type: string
+          description: Описание тренировки
+          example: "Темповый бег по парку"
+        distance_km:
+          type: number
+          format: float
+          description: Дистанция в километрах
+          minimum: 0.1
+          example: 10.0
+        duration_min:
+          type: number
+          format: float
+          description: Продолжительность в минутах
+          minimum: 1
+          example: 50.0
+        avg_heart_rate:
+          type: integer
+          description: Средний пульс (уд/мин), необязательно
+          minimum: 50
+          maximum: 230
+          example: 162
+        calories:
+          type: integer
+          description: Потраченные калории, необязательно
+          minimum: 0
+          example: 550
+        date:
+          type: string
+          format: date
+          description: Дата тренировки (YYYY-MM-DD), необязательно
+          example: "2026-04-29"
+
+    Workout:
+      allOf:
+        - $ref: '#/components/schemas/WorkoutInput'
+        - type: object
+          properties:
+            id:
+              type: integer
+              description: Уникальный идентификатор
+              example: 3
+            pace_min_per_km:
+              type: number
+              format: float
+              description: Темп (мин/км), вычисляется автоматически
+              example: 5.0
+            created_at:
+              type: string
+              format: date-time
+              description: Дата создания записи
+              example: "2026-04-29T10:00:00Z"
+
+    Record:
+      type: object
+      properties:
+        distance_m:
+          type: integer
+          description: Дистанция в метрах
+          example: 10000
+        distance_name:
+          type: string
+          description: Название дистанции
+          example: "10К"
+        time_min:
+          type: number
+          format: float
+          description: Время в минутах (проецированное по темпу тренировки)
+          example: 50.0
+        pace_min_per_km:
+          type: number
+          format: float
+          description: Темп (мин/км)
+          example: 5.0
+        workout_id:
+          type: integer
+          description: ID тренировки, в которой был установлен рекорд
+          example: 3
+        workout_date:
+          type: string
+          format: date
+          description: Дата тренировки
+          example: "2026-04-29"
+        set_at:
+          type: string
+          format: date-time
+          description: Дата и время установки рекорда
+          example: "2026-04-29T10:00:00Z"
+
+    NewRecordNotification:
+      type: object
+      properties:
+        distance_m:
+          type: integer
+          example: 10000
+        distance_name:
+          type: string
+          example: "10К"
+        time_min:
+          type: number
+          format: float
+          example: 50.0
+        pace_min_per_km:
+          type: number
+          format: float
+          example: 5.0
+        previous_record:
+          allOf:
+            - $ref: '#/components/schemas/Record'
+          nullable: true
+          description: Предыдущий рекорд (null если рекорд установлен впервые)
+        message:
+          type: string
+          description: Человекочитаемое сообщение о рекорде
+          example: "Новый рекорд на 10К: 1:00:00 → 48:02 (темп 4:48/км)!"
+
+    CreateWorkoutResponse:
+      type: object
+      properties:
+        workout:
+          $ref: '#/components/schemas/Workout'
+        new_records:
+          type: array
+          description: Новые личные рекорды, установленные этой тренировкой
+          items:
+            $ref: '#/components/schemas/NewRecordNotification'
+
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+          example: "workout not found"
