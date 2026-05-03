@@ -15,7 +15,7 @@ var ErrNotFound = errors.New("workout not found")
 type MemoryStore struct {
 	mu       sync.RWMutex
 	workouts []models.Workout
-	records  map[int]*models.Record // keyed by distance in meters
+	records  map[int]*models.Record
 	nextID   int
 }
 
@@ -64,18 +64,15 @@ func (s *MemoryStore) insert(inp models.WorkoutInput) models.Workout {
 	return w
 }
 
-// checkRecords checks all standard distances against the workout and updates personal records.
-// Must be called while holding s.mu (write lock).
 func (s *MemoryStore) checkRecords(w models.Workout) []models.NewRecordNotification {
 	distanceM := w.DistanceKm * 1000
-	pace := w.DurationMin / w.DistanceKm // min/km
+	pace := w.DurationMin / w.DistanceKm
 
 	var notifications []models.NewRecordNotification
 
 	for _, std := range models.StandardDistances {
 		targetM := float64(std.Meters)
 
-		// Workout must be at least as long as the target, but no more than 10% longer.
 		if distanceM < targetM || distanceM > targetM*1.1 {
 			continue
 		}
@@ -125,7 +122,6 @@ func (s *MemoryStore) checkRecords(w models.Workout) []models.NewRecordNotificat
 	return notifications
 }
 
-// formatDuration formats minutes as M:SS or H:MM:SS.
 func formatDuration(minutes float64) string {
 	totalSec := int(math.Round(minutes * 60))
 	h := totalSec / 3600
@@ -207,11 +203,16 @@ func (s *MemoryStore) Delete(id int) error {
 	return ErrNotFound
 }
 
+func (s *MemoryStore) Count() int {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return len(s.workouts)
+}
+
 func (s *MemoryStore) ListRecords() []models.Record {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	result := make([]models.Record, 0, len(s.records))
-	// Return in standard distance order
 	for _, std := range models.StandardDistances {
 		if r, ok := s.records[std.Meters]; ok {
 			result = append(result, *r)
