@@ -1,7 +1,6 @@
 package main
 
 import (
-	"log"
 	"net/http"
 	"os"
 
@@ -10,19 +9,24 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	httpSwagger "github.com/swaggo/http-swagger"
 	"running-tracker/internal/handlers"
+	"running-tracker/internal/logger"
 	"running-tracker/internal/metrics"
 	"running-tracker/internal/storage"
 )
 
 func main() {
+	log := logger.New()
+
 	store := storage.NewMemoryStore()
 	metrics.WorkoutsActive.Set(float64(store.Count()))
+	log.Info("storage initialized", "workouts", store.Count())
 
-	h := handlers.New(store)
+	h := handlers.New(store, log)
 
 	r := chi.NewRouter()
-	r.Use(middleware.Logger)
+	r.Use(middleware.RequestID)
 	r.Use(middleware.Recoverer)
+	r.Use(logger.HTTPLogger(log))
 
 	r.Handle("/metrics", promhttp.Handler())
 	r.Get("/openapi.yaml", func(w http.ResponseWriter, r *http.Request) {
@@ -47,8 +51,13 @@ func main() {
 		port = "8080"
 	}
 
-	log.Printf("App:        http://localhost:%s", port)
-	log.Printf("Swagger:    http://localhost:%s/swagger/index.html", port)
-	log.Printf("Metrics:    http://localhost:%s/metrics", port)
-	log.Fatal(http.ListenAndServe(":"+port, r))
+	log.Info("server starting",
+		"port", port,
+		"swagger", "http://localhost:"+port+"/swagger/index.html",
+		"metrics", "http://localhost:"+port+"/metrics",
+	)
+	if err := http.ListenAndServe(":"+port, r); err != nil {
+		log.Error("server stopped", "error", err.Error())
+		os.Exit(1)
+	}
 }
