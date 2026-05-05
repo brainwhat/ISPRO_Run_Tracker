@@ -128,7 +128,7 @@
     {
       "id": 6,
       "type": "timeseries",
-      "title": "HTTP — Латентность p50 / p95 / p99",
+      "title": "HTTP — Latency p50 / p95 / p99",
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 4 },
       "targets": [
         {
