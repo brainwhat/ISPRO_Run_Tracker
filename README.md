@@ -155,7 +155,6 @@ sum(rate(http_requests_total{status_code=~"[45].."}[1m])) / sum(rate(http_reques
 histogram_quantile(0.50, sum(rate(workout_distance_km_bucket[10m])) by (le))
 ```
 
-
 ## Логи
 
 Структурированные JSON-логи на `log/slog`. Пишутся в stdout и в `data/app/app.log`. Файл тейлит Grafana Alloy и пушит в Loki.
@@ -176,7 +175,6 @@ histogram_quantile(0.50, sum(rate(workout_distance_km_bucket[10m])) by (le))
 | `job`     | static          | задаётся в `alloy.alloy`        |
 | `level`   | low cardinality | парсится из JSON, индексируется |
 
-Высококардинальные поля (`request_id`, `path`, `status`, `method`) лежат в JSON-теле и достаются через `| json` парсер на запросе — это даёт богатую фильтрацию без раздувания индекса.
 
 **Что генерирует приложение:**
 
@@ -214,9 +212,6 @@ sum(count_over_time({service="running-tracker", level=~"WARN|ERROR"}[5m]))
 quantile_over_time(0.95, {service="running-tracker"} | json | unwrap latency_ms [5m]) by (path)
 ```
 
-Открой http://localhost:3000/explore, выбери datasource **Loki** — поэкспериментируй вживую. Готовый дашборд: http://localhost:3000/d/running-tracker-v1.
-
----
 
 ## Скриншоты
 
