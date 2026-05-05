@@ -20,6 +20,9 @@
 - prometheus/client_golang
 - Prometheus
 - Grafana
+- log/slog (JSON-логи)
+- Loki (хранение логов)
+- Grafana Alloy (агент-сборщик)
 
 ---
 
@@ -30,6 +33,9 @@
 ├── cmd/server/main.go
 ├── internal/
 │   ├── handlers/workouts.go
+│   ├── logger/
+│   │   ├── logger.go        # JSON-slog с MultiWriter
+│   │   └── middleware.go    # HTTP-логгер с request_id
 │   ├── metrics/
 │   │   ├── metrics.go       # объявление метрик
 │   │   └── middleware.go    # HTTP middleware
@@ -37,6 +43,8 @@
 │   └── storage/
 ├── configs/
 │   ├── prometheus.yml
+│   ├── loki.yml
+│   ├── alloy.alloy          # пайплайн: tail файла → Loki
 │   └── grafana/
 │       ├── provisioning/    # авто-подключение datasource и дашбордов
 │       └── dashboards/      # JSON дашборд
@@ -56,16 +64,15 @@ make run-all
 | Сервис     | Адрес                                    |
 |------------|------------------------------------------|
 | API        | http://localhost:8080                    |
+| Grafana    | http://localhost:3000                    |
 | Swagger    | http://localhost:8080/swagger/index.html |
 | Метрики    | http://localhost:8080/metrics            |
 | Prometheus | http://localhost:9090                    |
-| Grafana    | http://localhost:3000                    |
+| Loki       | http://localhost:3100                    |
+| Alloy UI   | http://localhost:12345                   |
 
 Первый раз — установить инструменты: `make install-tools`
 
-Остановить стек: **Ctrl-C** или `make stop`
-
----
 
 ## Эндпоинты
 
@@ -119,7 +126,7 @@ Prometheus scrape: `GET /metrics`, интервал 5с. Дашборд подг
 | Метрика | Тип | Лейблы | Описание |
 |---|---|---|---|
 | `http_requests_total` | счётчик | `method`, `path`, `status_code` | Суммарное число запросов |
-| `http_request_duration_seconds` | гистограмма | `method`, `path` | Латентность |
+| `http_request_duration_seconds` | гистограмма | `method`, `path` | Latency |
 | `http_requests_in_flight` | gauge | — | Запросы в обработке прямо сейчас |
 
 **Продуктовые:**
@@ -138,7 +145,7 @@ Prometheus scrape: `GET /metrics`, интервал 5с. Дашборд подг
 # RPS по эндпоинтам
 sum(rate(http_requests_total[1m])) by (method, path)
 
-# p95 латентность
+# p95 latency
 histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket[1m])) by (le))
 
 # Доля ошибок
@@ -148,9 +155,66 @@ sum(rate(http_requests_total{status_code=~"[45].."}[1m])) / sum(rate(http_reques
 histogram_quantile(0.50, sum(rate(workout_distance_km_bucket[10m])) by (le))
 ```
 
----
+## Логи
+
+Структурированные JSON-логи на `log/slog`. Пишутся в stdout и в `data/app/app.log`. Файл тейлит Grafana Alloy и пушит в Loki.
+
+**Формат строки:**
+
+```json
+{"time":"2026-05-05T18:39:02Z","level":"INFO","msg":"workout created",
+ "service":"running-tracker","request_id":"...-000023",
+ "id":11,"distance_km":5,"duration_min":24,"new_records":1}
+```
+
+**Лейблы Loki:**
+
+| Лейбл     | Тип             | Источник                        |
+|-----------|-----------------|---------------------------------|
+| `service` | static          | задаётся в `alloy.alloy`        |
+| `job`     | static          | задаётся в `alloy.alloy`        |
+| `level`   | low cardinality | парсится из JSON, индексируется |
+
+
+**Что генерирует приложение:**
+
+- HTTP-запросы (`msg=http_request`) — каждый запрос: method, path, status, latency_ms, request_id, bytes. Уровень адаптивен: 5xx → `ERROR`, 4xx → `WARN`, иначе `INFO`.
+- Бизнес-события: `workout created`, `workout updated`, `workout deleted`, `personal record broken`.
+- Ошибки валидации: `invalid request body`, `invalid workout input`, `workout not found` (`WARN`).
+- Старт сервиса: `storage initialized`, `server starting` (`INFO`).
+
+### Примеры LogQL
+
+```logql
+# все логи приложения
+{service="running-tracker"}
+
+# только ошибки и предупреждения
+{service="running-tracker", level=~"WARN|ERROR"}
+
+# проблемные запросы (4xx + 5xx)
+{service="running-tracker"} | json | status >= 400
+
+# бизнес-события: побитые рекорды
+{service="running-tracker"} | json | msg = "personal record broken"
+
+# объём логов по уровню (для timeseries)
+sum by (level) (count_over_time({service="running-tracker"}[1m]))
+
+# топ-5 путей с ошибками
+topk(5, sum by (path) (count_over_time({service="running-tracker"} | json | status >= 400 [5m])))
+
+# процент проблемных строк (% WARN+ERROR)
+sum(count_over_time({service="running-tracker", level=~"WARN|ERROR"}[5m]))
+  / sum(count_over_time({service="running-tracker"}[5m]))
+
+# p95 latency из логов (а не из метрик), per path
+quantile_over_time(0.95, {service="running-tracker"} | json | unwrap latency_ms [5m]) by (path)
+```
+
 
 ## Скриншоты
 
 ![Swagger UI](imgs/swagger.png)
-![Grafana](imgs/grafana.png)
+![Grafana](imgs/grafana1.png)
+![Grafana](imgs/grafana2.png)
