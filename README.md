@@ -221,4 +221,5 @@ quantile_over_time(0.95, {service="running-tracker"} | json | unwrap latency_ms 
 ## Скриншоты
 
 ![Swagger UI](imgs/swagger.png)
-![Grafana](imgs/grafana.png)
+![Grafana](imgs/grafana1.png)
+![Grafana](imgs/grafana2.png)
