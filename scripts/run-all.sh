@@ -18,8 +18,11 @@ loki \
     >> data/loki/server.log 2>&1 &
 PID_LOKI=$!
 
-tempo \
-    -config.file=configs/tempo.yml \
+docker rm -f running-tracker-tempo >/dev/null 2>&1 || true
+docker run --rm --name running-tracker-tempo \
+    -p 3200:3200 -p 4317:4317 \
+    -v "$P/configs/tempo.yml:/etc/tempo/tempo.yml:ro" \
+    grafana/tempo:2.10.5 -config.file=/etc/tempo/tempo.yml \
     >> data/tempo/server.log 2>&1 &
 PID_TEMPO=$!
 
