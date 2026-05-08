@@ -4,7 +4,7 @@ set -euo pipefail
 BREW_PREFIX=$(brew --prefix 2>/dev/null || echo /usr/local)
 P=$(pwd)
 
-mkdir -p data/prometheus data/grafana data/loki/{chunks,rules} data/app data/alloy
+mkdir -p data/prometheus data/grafana data/loki/{chunks,rules} data/app data/alloy data/tempo
 
 prometheus \
     --config.file=configs/prometheus.yml \
@@ -17,6 +17,11 @@ loki \
     -config.file=configs/loki.yml \
     >> data/loki/server.log 2>&1 &
 PID_LOKI=$!
+
+tempo \
+    -config.file=configs/tempo.yml \
+    >> data/tempo/server.log 2>&1 &
+PID_TEMPO=$!
 
 alloy run \
     --storage.path=./data/alloy \
