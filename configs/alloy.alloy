@@ -1,4 +1,4 @@
-// Tail JSON-логи приложения и шлёт в Loki.
+// Тейлит JSON-логи приложения в Loki, принимает OTLP-трейсы и шлёт в Tempo.
 // Запускается из корня проекта (см. scripts/run-all.sh).
 
 loki.write "default" {
@@ -35,6 +35,31 @@ loki.process "app_logs" {
 	stage.labels {
 		values = {
 			level = "",
+		}
+	}
+}
+
+otelcol.receiver.otlp "app_traces" {
+	grpc {
+		endpoint = "127.0.0.1:14317"
+	}
+
+	output {
+		traces = [otelcol.processor.batch.traces.input]
+	}
+}
+
+otelcol.processor.batch "traces" {
+	output {
+		traces = [otelcol.exporter.otlp.tempo.input]
+	}
+}
+
+otelcol.exporter.otlp "tempo" {
+	client {
+		endpoint = "127.0.0.1:4317"
+		tls {
+			insecure = true
 		}
 	}
 }
