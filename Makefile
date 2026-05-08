@@ -12,7 +12,9 @@ stop:
 	@pkill -f "grafana server"           2>/dev/null || true
 	@pkill -f "loki -config.file"        2>/dev/null || true
 	@pkill -f "alloy run"                2>/dev/null || true
-	@lsof -ti:8080 | xargs kill          2>/dev/null || true
+	@docker rm -f running-tracker-tempo  2>/dev/null || true
+	@lsof -ti:8080,3200,4317,14317 | xargs kill 2>/dev/null || true
 
 install-tools:
 	brew install prometheus grafana loki grafana-alloy
+	docker pull grafana/tempo:2.10.5

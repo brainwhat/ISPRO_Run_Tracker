@@ -9,10 +9,15 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 	"running-tracker/internal/metrics"
 	"running-tracker/internal/models"
 	"running-tracker/internal/storage"
 )
+
+var tracer = otel.Tracer("running-tracker/handlers")
 
 type Handler struct {
 	store *storage.MemoryStore
@@ -78,11 +83,23 @@ func (h *Handler) CreateWorkout(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "distance_km and duration_min are required and must be positive")
 		return
 	}
+
+	ctx, storeSpan := tracer.Start(r.Context(), "storage.create", trace.WithAttributes(
+		attribute.String("workout.name", inp.Name),
+		attribute.Float64("workout.distance_km", inp.DistanceKm),
+		attribute.Float64("workout.duration_min", inp.DurationMin),
+	))
 	wk, newRecords := h.store.Create(inp)
+	storeSpan.SetAttributes(attribute.Int("workout.id", wk.ID))
+	storeSpan.End()
 
 	metrics.WorkoutsCreatedTotal.Inc()
 	metrics.WorkoutsActive.Inc()
 	metrics.WorkoutDistanceKm.Observe(inp.DistanceKm)
+
+	_, recSpan := tracer.Start(ctx, "records.notify", trace.WithAttributes(
+		attribute.Int("records.count", len(newRecords)),
+	))
 	for _, rec := range newRecords {
 		metrics.PersonalRecordsBrokenTotal.WithLabelValues(rec.DistanceName).Inc()
 		log.Info("personal record broken",
@@ -91,6 +108,7 @@ func (h *Handler) CreateWorkout(w http.ResponseWriter, r *http.Request) {
 			"workout_id", wk.ID,
 		)
 	}
+	recSpan.End()
 
 	log.Info("workout created",
 		"id", wk.ID,

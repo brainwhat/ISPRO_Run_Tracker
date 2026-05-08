@@ -22,7 +22,9 @@
 - Grafana
 - log/slog (JSON-логи)
 - Loki (хранение логов)
-- Grafana Alloy (агент-сборщик)
+- Tempo (хранение трейсов)
+- OpenTelemetry SDK / OTLP gRPC (экспорт трейсов)
+- Grafana Alloy (агент-сборщик логов и трейсов)
 
 ---
 
@@ -40,11 +42,14 @@
 │   │   ├── metrics.go       # объявление метрик
 │   │   └── middleware.go    # HTTP middleware
 │   ├── models/
-│   └── storage/
+│   ├── storage/
+│   └── telemetry/
+│       └── tracing.go       # инициализация OpenTelemetry / OTLP gRPC
 ├── configs/
 │   ├── prometheus.yml
 │   ├── loki.yml
-│   ├── alloy.alloy          # пайплайн: tail файла → Loki
+│   ├── tempo.yml            # бэкенд хранения трейсов
+│   ├── alloy.alloy          # пайплайны: логи → Loki, OTLP трейсы → Tempo
 │   └── grafana/
 │       ├── provisioning/    # авто-подключение datasource и дашбордов
 │       └── dashboards/      # JSON дашборд
@@ -69,6 +74,7 @@ make run-all
 | Метрики    | http://localhost:8080/metrics            |
 | Prometheus | http://localhost:9090                    |
 | Loki       | http://localhost:3100                    |
+| Tempo      | http://localhost:3200/ready              |
 | Alloy UI   | http://localhost:12345                   |
 
 Первый раз — установить инструменты: `make install-tools`
@@ -213,8 +219,47 @@ quantile_over_time(0.95, {service="running-tracker"} | json | unwrap latency_ms 
 ```
 
 
+## Трейсы
+
+Распределённая трассировка через OpenTelemetry. Каждый HTTP-запрос оборачивается в span в `tracingMiddleware` (`cmd/server/main.go`), внутри `POST /workouts` создаются дочерние span'ы `storage.create` и `records.notify` — это видно в Grafana как дерево.
+
+**Пайплайн:** `Application → Alloy (OTLP gRPC :14317) → Tempo (:4317) → Grafana (Tempo datasource :3200)`
+
+**Атрибуты span'ов:**
+
+| Span | Атрибуты |
+|---|---|
+| `METHOD path` (HTTP) | `http.method`, `url.path`, `http.route`, `http.status_code` |
+| `storage.create` | `workout.name`, `workout.distance_km`, `workout.duration_min`, `workout.id` |
+| `records.notify` | `records.count` |
+
+`status = error` выставляется автоматически при `http.status_code >= 500`.
+
+### Примеры TraceQL
+
+```traceql
+# все трейсы сервиса
+{ resource.service.name = "running-tracker" }
+
+# трейсы с ошибками
+{ resource.service.name = "running-tracker" && status = error }
+
+# медленные запросы (> 200ms)
+{ resource.service.name = "running-tracker" && duration > 200ms }
+
+# трейсы по конкретной ручке
+{ span.http.route = "/workouts/{id}" }
+
+# создание тренировок длиннее марафона
+{ span.workout.distance_km > 42 }
+
+# запросы, в которых был побит хотя бы один рекорд
+{ span.records.count > 0 }
+```
+
 ## Скриншоты
 
 ![Swagger UI](imgs/swagger.png)
 ![Grafana](imgs/grafana1.png)
 ![Grafana](imgs/grafana2.png)
+![Trace](imgs/trace.png)
