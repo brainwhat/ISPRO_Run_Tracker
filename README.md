@@ -225,8 +225,6 @@ quantile_over_time(0.95, {service="running-tracker"} | json | unwrap latency_ms 
 
 **Пайплайн:** `Application → Alloy (OTLP gRPC :14317) → Tempo (:4317) → Grafana (Tempo datasource :3200)`
 
-Endpoint экспортёра настраивается через `OTEL_EXPORTER_OTLP_ENDPOINT` (по умолчанию `127.0.0.1:14317`).
-
 **Атрибуты span'ов:**
 
 | Span | Атрибуты |
@@ -249,7 +247,7 @@ Endpoint экспортёра настраивается через `OTEL_EXPORT
 # медленные запросы (> 200ms)
 { resource.service.name = "running-tracker" && duration > 200ms }
 
-# трейсы по конкретной ручке (chi route pattern)
+# трейсы по конкретной ручке
 { span.http.route = "/workouts/{id}" }
 
 # создание тренировок длиннее марафона
@@ -264,3 +262,4 @@ Endpoint экспортёра настраивается через `OTEL_EXPORT
 ![Swagger UI](imgs/swagger.png)
 ![Grafana](imgs/grafana1.png)
 ![Grafana](imgs/grafana2.png)
+![Trace](imgs/trace.png)
