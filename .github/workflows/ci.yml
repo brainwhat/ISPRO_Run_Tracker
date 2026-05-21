@@ -34,8 +34,9 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
       - run: |
-          docker build -t ghcr.io/${{ github.repository }}:${{ github.sha }} .
-          docker push ghcr.io/${{ github.repository }}:${{ github.sha }}
+          IMAGE=ghcr.io/$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
+          docker build -t $IMAGE:${{ github.sha }} .
+          docker push $IMAGE:${{ github.sha }}
 
   deploy:
     runs-on: ubuntu-latest
@@ -46,9 +47,10 @@ jobs:
         with:
           ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
       - run: |
+          IMAGE=ghcr.io/$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
           ssh -o StrictHostKeyChecking=no root@${{ secrets.VPS_HOST }} "
-            docker pull ghcr.io/${{ github.repository }}:${{ github.sha }} &&
+            docker pull $IMAGE:${{ github.sha }} &&
             docker stop running-tracker || true &&
             docker rm running-tracker || true &&
-            docker run -d --name running-tracker -p 8080:8080 ghcr.io/${{ github.repository }}:${{ github.sha }}
+            docker run -d --name running-tracker -p 8080:8080 $IMAGE:${{ github.sha }}
           "
