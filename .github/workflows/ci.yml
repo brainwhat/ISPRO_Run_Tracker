@@ -28,4 +28,27 @@ jobs:
     needs: lint
     steps:
       - uses: actions/checkout@v4
-      - run: docker build -t running-tracker:${{ github.sha }} .
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - run: |
+          docker build -t ghcr.io/${{ github.repository }}:${{ github.sha }} .
+          docker push ghcr.io/${{ github.repository }}:${{ github.sha }}
+
+  deploy:
+    runs-on: ubuntu-latest
+    needs: docker
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+      - run: |
+          ssh -o StrictHostKeyChecking=no root@${{ secrets.VPS_HOST }} "
+            docker pull ghcr.io/${{ github.repository }}:${{ github.sha }} &&
+            docker stop running-tracker || true &&
+            docker rm running-tracker || true &&
+            docker run -d --name running-tracker -p 8080:8080 ghcr.io/${{ github.repository }}:${{ github.sha }}
+          "
