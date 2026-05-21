@@ -257,9 +257,24 @@ quantile_over_time(0.95, {service="running-tracker"} | json | unwrap latency_ms 
 { span.records.count > 0 }
 ```
 
+## CI/CD
+
+
+**Pipeline:** lint → docker build + push → deploy
+
+| Шаг | Триггер | Что делает |
+|---|---|---|
+| lint | любой пуш | `gofmt` + `go vet` |
+| docker | после lint | собирает образ, пушит в [GHCR](https://github.com/brainwhat/ISPRO_Run_Tracker/pkgs/container/ispro_run_tracker) |
+| deploy | пуш в `main` | SSH на VPS, перезапускает контейнер |
+
+Можно глянуть на `http://13.140.25.179:8080` после каждого мержа в `main`.
+
+
 ## Скриншоты
 
 ![Swagger UI](imgs/swagger.png)
 ![Grafana](imgs/grafana1.png)
 ![Grafana](imgs/grafana2.png)
 ![Trace](imgs/trace.png)
+![CI/CD](imgs/cicd.png)
